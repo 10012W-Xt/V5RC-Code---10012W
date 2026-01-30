@@ -10,9 +10,6 @@
 #include "pros/misc.h"
 #include "pros/motor_group.hpp"
 #include "pros/motors.h"
-#include "pros/motors.hpp"
-#include "pros/optical.hpp"
-#include "pros/rtos.hpp"
 #include <cmath>
 #include <iostream>
 #include <sys/signal.h>
@@ -21,8 +18,8 @@
 pros::Controller controller(pros::E_CONTROLLER_MASTER);
 
 /* --------------------------------- Motors --------------------------------- */
-pros::MotorGroup right_drive({13, -18, -10}, pros::MotorGearset::blue);
-pros::MotorGroup left_drive({-16, 21, -17}, pros::MotorGearset::blue);
+pros::MotorGroup right_drive({10, 3, -13}, pros::MotorGearset::blue);
+pros::MotorGroup left_drive({17, -5, -16}, pros::MotorGearset::blue);
 
 pros::Motor intake_bottom(9);
 pros::Motor intake_top_left(20);
@@ -39,10 +36,10 @@ pros::Rotation vert(2);
 pros::Distance dist(19);
 
 /* --------------------------------- Pistons -------------------------------- */
-pros::adi::DigitalOut loader('F');
-pros::adi::DigitalOut descorer('E');
-pros::adi::DigitalOut longgoal ('G');
-pros::adi::DigitalOut frontflap ('H');
+pros::adi::DigitalOut loader('H');
+pros::adi::DigitalOut descorer('D');
+pros::adi::DigitalOut longgoal ('F');
+pros::adi::DigitalOut frontflap ('B');
 
 bool loader_down;
 bool descorer_down;
@@ -50,45 +47,42 @@ bool longgoal_down;
 bool frontflap_down;
 
 /* ----------------------------- Tracking Wheels ---------------------------- */
-lemlib::TrackingWheel vert_wheel(&vert, lemlib::Omniwheel::NEW_2, 1.5);
+lemlib::TrackingWheel vert_wheel(&vert, lemlib::Omniwheel::NEW_2, 0);
 
 /* ---------------------------- Drivetrain Setup ---------------------------- */
-lemlib::Drivetrain drivetrain(&left_drive, &right_drive, 10,
-                              lemlib::Omniwheel::NEW_4, 500, 2);
+lemlib::Drivetrain drivetrain(&left_drive, &right_drive, 13.5,
+                              lemlib::Omniwheel::NEW_4, 500, 8);
 lemlib::OdomSensors sensors(&vert_wheel, nullptr, nullptr, nullptr,
                             &inertial);
 
 /* ---------------------------------- PIDs ---------------------------------- */
 lemlib::ControllerSettings
-    lateral_controller(9,   // kP
+    lateral_controller(11,   // kP
                        0,   // kI
-                       50,  // kD
+                       130,  // kD
                        3,   // antiwindup
                        1,   // small error range (in)
                        100, // small error range timeout (ms)
                        3,   // large error range (in)
                        500, // large error range timeout (ms)
-                       5    // maximum acceleration
+                       20    // maximum acceleration
     );
 
 lemlib::ControllerSettings
-    angular_controller(4,   // kP
+    angular_controller(3,   // kP
                        0,   // kI
-                       26,  // kD
+                       20,  // kD
                        3,   // antiwindup
                        1,   // small error range (in)
                        100, // small error range timeout (ms)
                        3,   // large error range (in)
-                       500, // large error range timeout
+                       500, // large error range timeout (ms)
                        0    // maximum acceleration
     );
 
 /* ----------------------------- Create Chassis ----------------------------- */
 
-lemlib::Chassis chassis(drivetrain, 
-lateral_controller, 
-angular_controller,
-sensors);
+lemlib::Chassis chassis(drivetrain, lateral_controller, angular_controller, sensors);
 
 
 
@@ -137,14 +131,16 @@ pros::lcd::print(0, "distance: %d cm", distance);
 pros::lcd::register_btn1_cb(Distance);
 
     if (distance < 30) {
-    pros::lcd::print(1, "too close fella");
-    }
+    
+  }
 
 pros::delay(10);
 }}
+
+pros::Task* distance_task = nullptr;
+
 void initialize() {
-  /* ----------------------------- Motor Stopping -----------------------------
-   */
+  /* ----------------------------- Motor Stopping ---------------------------- */
    
   left_drive.set_brake_mode_all(pros::E_MOTOR_BRAKE_HOLD);
   right_drive.set_brake_mode_all(pros::E_MOTOR_BRAKE_HOLD);
@@ -156,6 +152,7 @@ void initialize() {
   /* ---------------------------------- Setup ---------------------------------
    */
   pros::lcd::initialize();
+ 
   chassis.calibrate();
   intake_bottom.tare_position();
 
@@ -189,7 +186,7 @@ void print_coords() {
     heading = std::round(chassis.getPose().theta * 100.0) / 100.0;
 
     std::cout << "x: " << rounded_x << ", y: " << rounded_y << std::endl;
-    std::cout << "" << std::endl;
+    std::cout << "heading: " << heading << std::endl;
 
     pros::delay(500);
   }
@@ -198,12 +195,36 @@ void print_coords() {
 /* ------------------------------- Autonmous -------------------------------- */
 
 void autonomous() {
-  // fixDrift_task = new pros::Task(fixDrift);
+  //fixDrift_task = new pros::Task(fixDrift);
+  chassis.setBrakeMode(pros::E_MOTOR_BRAKE_BRAKE);
+  intake_bottom.move(127),
+	intake_top_left.move(-127),
+	intake_top_right.move(127);
+  chassis.moveToPoint(0, 30, 1000,{.maxSpeed = 80});
+
+  pros::delay(500);
+  loader.set_value(true);
+
+  chassis.turnToPoint(27, 1, 800);
+  chassis.moveToPoint(30, 13, 900);
+  chassis.turnToPoint(35, 3, 800);
+  chassis.moveToPoint(35, 1, 500,{.maxSpeed = 60});
+ chassis.waitUntilDone();
+ pros::delay(500);
+  chassis.moveToPoint(22, 32, 1000,{.forwards = false});
+  chassis.waitUntilDone();
+  longgoal.set_value(true);
+  intake_bottom.move(127),
+  intake_top_left.move(-127),
+  intake_top_right.move(127);
+  pros::delay(500);
+  //chassis.setBrakeMode(pros::E_MOTOR_BRAKE_COAST);
   // For PID tuning
   // set position to x:0, y:0, heading:0
-  // chassis.setPose(0, 0, 0);
   // turn to face heading 90 with a very long timeout
-  // chassis.turnToHeading(90, 1000);
+  //chassis.moveToPoint(0, 48 , 10000);
+//chassis.turnToHeading(90, 10000);
+  
 }
 
 void opcontrol() {
@@ -225,26 +246,28 @@ void opcontrol() {
     }
 
     // Move motors
-    left_drive.move(leftY + rightX);
-    right_drive.move(leftY - rightX);
+    left_drive.move((leftY + rightX));
+    right_drive.move((leftY - rightX));
 
     /* ----------------------------- Intake Control ---------------------------- */
     // Intake
     if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_R1)) {
 
 	  intake_bottom_speed = 127,
-	  intake_top_left_speed = 0,
+	  intake_top_left_speed = -120,
 	  intake_top_right_speed = 127;
-      intake_bottom.move(intake_bottom_speed),
+
+    intake_bottom.move(intake_bottom_speed),
 	  intake_top_left.move(intake_top_left_speed),
 	  intake_top_right.move(intake_top_right_speed);
 
 	// Long Goal
     } else if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_R2)) {
 
-      intake_bottom_speed = 127, 
-	  intake_top_left_speed = 127,
+    intake_bottom_speed = 127, 
+	  intake_top_left_speed = -127,
 	  intake_top_right_speed = 127;
+
 	  intake_bottom.move(intake_bottom_speed),
 	  intake_top_left.move(intake_top_left_speed),
 	  intake_top_right.move(intake_top_right_speed);
@@ -252,38 +275,49 @@ void opcontrol() {
     // Center Goals
     } else if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_L2)) {
 
-      intake_bottom_speed = 127, 
-	  intake_top_left_speed = -127,
-	  intake_top_right_speed = 127;
+      intake_bottom_speed = 120, 
+	  intake_top_left_speed = 40,
+	  intake_top_right_speed =  120;
 
       intake_bottom.move(intake_bottom_speed),
 	  intake_top_left.move(intake_top_left_speed),
 	  intake_top_right.move(intake_top_right_speed);
 
     // Outtake
-    } else if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_UP)) {
-	  frontflap_down = !frontflap_down,
+    } else if (controller.get_digital(pros::E_CONTROLLER_DIGITAL_RIGHT)) {
+	  
 	  intake_bottom_speed = -127,
-	  intake_top_left_speed = -127,
+	  intake_top_left_speed = 127,
 	  intake_top_right_speed = -127;
 
       intake_bottom.move(intake_bottom_speed),
-	  intake_top_left.move(intake_top_left_speed),
-	  intake_top_right.move(intake_top_right_speed);
-      frontflap.set_value(frontflap_down);
+	    intake_top_left.move(intake_top_left_speed),
+	    intake_top_right.move(intake_top_right_speed);
+      
 
+    } else {
+    intake_bottom.move(0),
+	  intake_top_left.move(0),
+	  intake_top_right.move(0);
     }
 
-    /*---------------------------------- Pneumatics ----------------------------------*/
+    /*------------------------------- Pneumatics -------------------------------*/
 
     // Long Goal
-    if (controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_L2)) {
+    if (controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_R2)) {
       longgoal_down = !longgoal_down;
       longgoal.set_value(longgoal_down);
-
-    // Front flap 
-    } else if (controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_Y)) {
+    } else if (controller.get_digital_new_release(pros::E_CONTROLLER_DIGITAL_R2)) {
+      longgoal_down = !longgoal_down;
+      longgoal.set_value(longgoal_down);
       
+    // Front flap 
+    } else if (controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_RIGHT)) {
+      frontflap_down = !frontflap_down;
+      frontflap.set_value(frontflap_down);
+    } else if (controller.get_digital_new_release(pros::E_CONTROLLER_DIGITAL_RIGHT)) {
+      frontflap_down = !frontflap_down;
+      frontflap.set_value(frontflap_down);
     // Loader
     } else if (controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_L1)) {
       loader_down = !loader_down;
